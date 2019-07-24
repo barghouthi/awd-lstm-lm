@@ -47,8 +47,13 @@ if args.temperature < 1e-3:
     parser.error("--temperature has to be greater or equal 1e-3")
 
 with open(args.checkpoint, 'rb') as f:
-    model = torch.load(f)
+    model, _, _  = torch.load(f)
+
+print ("Loaded Torch model from, ", f)
 model.eval()
+
+print ("Evaluated model")
+
 if args.model == 'QRNN':
     model.reset()
 
@@ -59,20 +64,62 @@ else:
 
 corpus = data.Corpus(args.data)
 ntokens = len(corpus.dictionary)
-hidden = model.init_hidden(1)
-input = Variable(torch.rand(1, 1).mul(ntokens).long(), volatile=True)
-if args.cuda:
-    input.data = input.data.cuda()
 
-with open(args.outf, 'w') as outf:
-    for i in range(args.words):
-        output, hidden = model(input, hidden)
-        word_weights = output.squeeze().data.div(args.temperature).exp().cpu()
-        word_idx = torch.multinomial(word_weights, 1)[0]
-        input.data.fill_(word_idx)
-        word = corpus.dictionary.idx2word[word_idx]
+print ("Loading data, ", args.data)
+print ("Number of tokens, ",  ntokens)
 
-        outf.write(word + ('\n' if i % 20 == 19 else ' '))
+while True:
+    uin = input("Enter priming text:\n")
+    if uin == "":
+        input_text = Variable(torch.rand(1, 1).mul(ntokens).long(), volatile=True)
+        hidden = model.init_hidden(1)
+        all_text = ""
+    else:
+        all_text = uin.split()
+        hidden = model.init_hidden(1)
+        input_text = corpus.dictionary.word2idx[all_text[0]] 
+        input_text = Variable(torch.tensor([[input_text]]).long(), volatile=True)
+        print ("Processing ", all_text[0])
+    
+    if args.cuda:
+        input_text.data = input_text.data.cuda()
 
-        if i % args.log_interval == 0:
-            print('| Generated {}/{} words'.format(i, args.words))
+    full_out = ""
+    with open(args.outf, 'w') as outf:
+
+        for i in range(1,len(all_text)):
+            output, hidden = model(input_text, hidden)
+            #word_weights = output.squeeze().data.div(args.temperature).exp().cpu()
+            word_weights = model.decoder(output).squeeze().data.div(args.temperature).exp().cpu()
+            word_idx = torch.multinomial(word_weights, 1)[0]
+            
+            # reinitialize input with predicted word
+            input_text.data.fill_(corpus.dictionary.word2idx[all_text[i]])
+
+            print ("Processing ", all_text[i])
+
+        for i in range(args.words):
+            output, hidden = model(input_text, hidden)
+            #word_weights = output.squeeze().data.div(args.temperature).exp().cpu()
+            word_weights = model.decoder(output).squeeze().data.div(args.temperature).exp().cpu()
+            word_idx = torch.multinomial(word_weights, 1)[0]
+            
+            # reinitialize input with predicted word
+            input_text.data.fill_(word_idx)
+            
+            word = corpus.dictionary.idx2word[word_idx]
+            if word == "<eos>": 
+                output = "\n"
+            else: 
+                output = word + (' ')
+            
+            outf.write(output)
+            
+            full_out = full_out + output
+                        
+            if i % args.log_interval == 0:
+                print('| Generated {}/{} words'.format(i, args.words))
+        print ('-'*89)
+        print (full_out)
+        print ('-'*89)
+

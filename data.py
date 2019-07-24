@@ -52,5 +52,4 @@ class Corpus(object):
                 for word in words:
                     ids[token] = self.dictionary.word2idx[word]
                     token += 1
-
         return ids
